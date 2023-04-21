@@ -1,0 +1,167 @@
+import yfinance as yf
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import networkx as nx
+import seaborn as sns
+
+# Get stock price data
+stocks = ['SUNPHARMA.NS', 'APOLLOHOSP.NS', 'DIVISLAB.NS', 'DRREDDY.NS', 'CIPLA.NS','RELIANCE.NS', 'ONGC.NS', 'NTPC.NS','ADANIGREEN.NS','SWSOLAR.NS','RELIANCE.BO','TCS.NS','INFY.NS','HCLTECH.NS','WIPRO.NS','HINDUNILVR.NS','ITC.NS','NESTLEIND.NS','BRITANNIA.NS','GODREJCP.NS','MARUTI.NS','EICHERMOT.NS','AUTOAXLES.NS','MUNJALSHOW.NS','ENDURANCE.NS']  # List of 4 stocks to fetch data for
+start_date = '2000-01-01'  # Start date for data
+end_date = datetime.now().strftime('%Y-%m-%d')  # End date is set to current date
+
+# Fetch stock data using yfinance
+data = yf.download(stocks, start=start_date, end=end_date)['Close']
+
+# Plot all stocks on the same graph
+plt.figure(figsize=(10, 6))
+for stock in stocks:
+    plt.plot(data.index, data[stock], label=stock)
+plt.title('Stock Prices')
+plt.xlabel('Date')
+plt.ylabel('Closing Price ($)')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Calculate daily returns for each stock
+returns = data.pct_change()
+
+# Graph out daily returns for each stock
+plt.figure(figsize=(10, 6))
+plt.plot(returns.index, returns[stocks])
+plt.legend(stocks)
+plt.title('Daily Returns of Stocks')
+plt.xlabel('Date')
+plt.ylabel('Daily Returns')
+plt.grid(True)
+plt.show()
+
+# Find points where current price deviates more than 25% of the average of the last 30 days
+window = 30  # Window size for calculating moving average
+deviation_threshold = 0.25  # Deviation threshold for identifying points of interest
+
+points_of_interest = {}
+for stock in stocks:
+    # Calculate moving average
+    rolling_avg = data[stock].rolling(window=window).mean()
+
+    # Calculate deviation from moving average
+    deviation = data[stock] - rolling_avg
+
+    # Identify points of interest where deviation is greater than threshold
+    points_of_interest[stock] = data[stock][deviation.abs() > (rolling_avg * deviation_threshold)]
+
+    # Convert points of interest to a DataFrame with corresponding dates
+    df = pd.DataFrame({'Date': points_of_interest[stock].index, 'Closing Price': points_of_interest[stock].values})
+    print(stock + ' Points of Interest:')
+    print(df)
+
+# Plot points of interest on the graph and identify dates
+for stock in stocks:
+    plt.figure(figsize=(10, 6))
+    plt.plot(data.index, data[stock])
+    plt.scatter(points_of_interest[stock].index, points_of_interest[stock], c='r', label='Points of Interest')
+    plt.title(stock + ' Stock Price with Points of Interest')
+    plt.xlabel('Date')
+    plt.ylabel('Closing Price ($)')
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+# Create and visualize quantitative risk of each stock
+risk_score = {}
+freq_points_interest = {}
+for stock in stocks:
+    # Calculate daily returns
+    returns = data[stock].pct_change()
+
+    # Calculate risk score as standard deviation of daily returns
+    risk_score[stock] = returns.std()
+    
+    # Calculate frequency of points of interest
+    freq_points_interest[stock] = len(points_of_interest[stock])
+
+# Plot risk scores and frequency of points of interest
+fig, ax1 = plt.subplots(figsize=(10, 6))
+ax2 = ax1.twinx()
+ax1.bar(risk_score.keys(), risk_score.values(), color='b', alpha=0.5)
+ax2.plot(freq_points_interest.keys(), freq_points_interest.values(), color='r')
+ax1.set_title('Quantitative Risk and Frequency of Points of Interest for Each Stock')
+ax1.set_xlabel('Stock')
+ax1.set_ylabel('Risk Score')
+ax2.set_ylabel('Frequency of Points of Interest')
+ax1.grid(True)
+plt.show()
+
+# Calculate correlation between risk score and frequency of points of interest
+correlation_data = pd.DataFrame({'Risk Score': risk_score.values(), 'Frequency of Points of Interest': freq_points_interest.values()}, index=risk_score.keys())
+correlation_matrix = correlation_data.corr()  # Calculate correlation matrix
+
+# Plot correlation matrix as a heatmap
+sns.set(font_scale=1.2)
+sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt='.2f', annot_kws={"size": 14})
+plt.title('Correlation Between Risk Score and Frequency of Points of Interest')
+plt.show()  # Show the plot
+
+# Calculate correlation matrix using eigenvectors
+returns = data.pct_change().dropna()  # Calculate daily returns
+correlation_matrix = returns.corr()  # Calculate correlation matrix
+
+# Calculate eigenvectors and eigenvalues
+eigenvalues, eigenvectors = np.linalg.eig(correlation_matrix)
+
+# Sort eigenvectors based on eigenvalues in descending order
+eigenvectors = eigenvectors[:, eigenvalues.argsort()[::-1]]
+
+# Print eigenvalues and eigenvectors
+print('Eigenvalues:')
+print(eigenvalues)
+print('\nEigenvectors:')
+print(eigenvectors)
+
+# Visualize correlation matrix and eigenvectors
+fig, axs = plt.subplots(ncols=2, figsize=(12, 6))
+axs[0].imshow(correlation_matrix, cmap='coolwarm')
+axs[0].set(title='Correlation Matrix')
+axs[1].imshow(eigenvectors, cmap='coolwarm')
+axs[1].set(title='Eigenvectors')
+plt.show()
+
+# Create correlation matrix of stock prices
+correlation_matrix = data.corr()
+
+# Create a weighted graph from the correlation matrix
+G = nx.Graph()
+for i, stock1 in enumerate(correlation_matrix.columns):
+    for j, stock2 in enumerate(correlation_matrix.columns):
+        if i < j:
+            weight = correlation_matrix.loc[stock1, stock2]
+            if np.isnan(weight):
+                weight = 0
+            G.add_edge(stock1, stock2, weight=weight)
+
+# Use eigenvectors to analyze stock correlations
+corr_matrix = data.pct_change().corr()
+eig_vals, eig_vecs = np.linalg.eig(corr_matrix)
+
+# Create a network diagram of the stocks
+G = nx.Graph()
+
+for i, stock1 in enumerate(stocks):
+    for j, stock2 in enumerate(stocks):
+        if i < j:
+            weight = eig_vecs[i][j]
+            if abs(weight) > 0.2:
+                G.add_edge(stock1, stock2, weight=weight)
+
+# Plot the network diagram
+plt.figure(figsize=(90, 90))
+pos = nx.spring_layout(G)
+nx.draw_networkx_nodes(G, pos, node_size=1000, alpha=0.8)
+nx.draw_networkx_edges(G, pos, width=2, alpha=0.5)
+nx.draw_networkx_labels(G, pos, font_size=60, font_family='sans-serif')
+plt.axis('off')
+plt.title('Stock Correlations Network Diagram')
+plt.show()
